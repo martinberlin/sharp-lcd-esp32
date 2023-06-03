@@ -125,8 +125,6 @@ void app_main() {
 
   ds3231_set_alarm(&dev, DS3231_ALARM_1, &time, DS3231_ALARM1_EVERY_SECOND,  &time, DS3231_ALARM2_EVERY_MIN);
   ds3231_enable_alarm_ints(&dev, DS3231_ALARM_1);
-
-  }
   xTaskCreatePinnedToCore(
     sqw_clear, /* Task function. */
     "sqw_task",    /* name of task. */
@@ -135,6 +133,8 @@ void app_main() {
     1,         /* priority of the task */
     &sqw_task, /* Task handle to keep track of created task */
     0);    /* pin task to core 0 */
+  }
+
 
   display.begin();
 

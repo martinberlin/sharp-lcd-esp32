@@ -2,7 +2,6 @@
 #include <Adafruit_SharpMem.h>
 // RESEARCH FOR SPI HAT Cinwrite, PCB and Schematics            https://github.com/martinberlin/H-cinread-it895
 // Note: This requires an IT8951 board and our Cinwrite PCB. It can be also adapted to work without it using an ESP32 (Any of it's models)
-// If you want to help us with the project please get one here: https://www.tindie.com/stores/fasani
 #include "ds3231.h"
 struct tm rtcinfo;
 // Non-Volatile Storage (NVS) - borrrowed from esp-idf/examples/storage/nvs_rw_value
@@ -34,7 +33,7 @@ struct tm rtcinfo;
 Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 128, 128);
 
 // Correction is TEMP - this number (Used for wrist watches)
-float ds3231_temp_correction = 7.0;
+float ds3231_temp_correction = 5.0;
 
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 4, 0)
   #error "ESP_IDF version not supported. Please use IDF 4.4 or IDF v5.0-beta1"
@@ -53,7 +52,7 @@ nvs_handle_t storage_handle;
 │ CLOCK configuration       │ Device wakes up each N minutes
 └───────────────────────────┘ Takes about 3.5 seconds to run the program
 **/
-#define DEEP_SLEEP_SECONDS 10
+#define DEEP_SLEEP_SECONDS 4
 
 /**
 ┌───────────────────────────┐
@@ -89,14 +88,7 @@ uint64_t USEC = 1000000;
 #endif
 
 esp_err_t ds3231_initialization_status = ESP_OK;
-#if CONFIG_SET_CLOCK
-    #define NTP_SERVER CONFIG_NTP_SERVER
-#endif
-#if CONFIG_GET_CLOCK
-    #define NTP_SERVER " "
-#endif
-
-static const char *TAG = "WeatherST SPI";
+static const char *TAG = "LCD";
 
 // I2C descriptor
 i2c_dev_t dev;
@@ -130,8 +122,8 @@ static void initialize_sntp(void)
 {
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    ESP_LOGI(TAG, "Your NTP Server is %s", NTP_SERVER);
-    sntp_setservername(0, NTP_SERVER);
+    ESP_LOGI(TAG, "Your NTP Server is %s", CONFIG_NTP_SERVER);
+    sntp_setservername(0, CONFIG_NTP_SERVER);
     sntp_set_time_sync_notification_cb(time_sync_notification_cb);
     sntp_init();
 }
@@ -199,7 +191,7 @@ void summertimeClock(tm rtcinfo, int correction) {
     ESP_LOGI(pcTaskGetName(0), "Set summertime correction time done");
 }
 
-void setClock(void *pvParameters)
+void setClock()
 {
     // obtain time over NTP
     ESP_LOGI(pcTaskGetName(0), "Connecting to WiFi and getting time over NTP.");
@@ -262,9 +254,7 @@ void setClock(void *pvParameters)
         ds3231_enable_alarm_ints(&dev, DS3231_ALARM_2);
     }
     // Wait some time to see if disconnecting all changes background color
-    delay_ms(50); 
-    // goto deep sleep
-    esp_deep_sleep_start();
+    esp_restart();
 }
 
 // Round clock draw functions
@@ -355,19 +345,22 @@ void clockLayout(uint8_t hr, uint8_t min, uint8_t sec)
 
 
 void getClock() {
-    // Get RTC date and time
-    float temp;
-    if (ds3231_get_temp_float(&dev, &temp) != ESP_OK) {
-        ESP_LOGE(TAG, "Could not get temperature.");
-        return;
+    if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
+        ESP_LOGE(pcTaskGetName(0), "Could not get time.");
     }
-    // Already got it in main() but otherwise could be done here
-    /* if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
-        ESP_LOGE(TAG, "Could not get time.");
-        return;
-    } */
-    ESP_LOGI("CLOCK", "\n%s\n%02d:%02d", weekday_t[rtcinfo.tm_wday], rtcinfo.tm_hour, rtcinfo.tm_min);
+    // Get RTC date and time
+    int16_t temp;
 
+    if (rtcinfo.tm_sec == 00) {
+        if (ds3231_get_raw_temp(&dev, &temp) != ESP_OK) {
+            ESP_LOGE(TAG, "Could not get temperature.");
+            return;
+        }
+        nvs_set_i16(storage_handle, "rtc_temp", temp);
+    }
+    //ESP_LOGI("CLOCK", "\n%s\n%02d:%02d", weekday_t[rtcinfo.tm_wday], rtcinfo.tm_hour, rtcinfo.tm_min);
+    display.clearDisplay();
+    display.setTextColor(BLACK);
     // Starting coordinates:
     uint16_t y_start = 110;
     uint16_t x_cursor = 10;
@@ -376,32 +369,32 @@ void getClock() {
     if (display.width() <= 200) {
         y_start = 30;
         x_cursor = 1;
-        display.setFont(&Ubuntu_M12pt8b);
+        display.setFont(&Ubuntu_M8pt8b);
         display.setCursor(x_cursor, y_start);
     } else {
-        display.setFont(&Ubuntu_M24pt8b);
+        display.setFont(&Ubuntu_M12pt8b);
         display.setCursor(x_cursor+20, y_start);
     }
-    
-    display.setTextColor(BLACK);
     display.printerf("%s %d %s", weekday_t[rtcinfo.tm_wday], rtcinfo.tm_mday, month_t[rtcinfo.tm_mon]);
 
-    // Dayname
-    y_start += 85;
+    // HH:MM
+    y_start += 50;
     x_cursor = 1;
     display.setFont(&Ubuntu_M24pt8b);
-    
     display.setTextColor(BLACK);
     display.setCursor(x_cursor, y_start);
-    // Print clock HH:MM (Seconds excluded: rtcinfo.tm_sec)
     display.printerf("%02d:%02d", rtcinfo.tm_hour, rtcinfo.tm_min);
+    y_start += 26;
+    x_cursor = display.width()-40;
+    display.setFont(&Ubuntu_M12pt8b);
+    display.setCursor(x_cursor, y_start);
+    // Seconds
+    display.printerf("%02d", rtcinfo.tm_sec);
 
-
-    
     // Print temperature
     if (display.width() <= 200) {
-      x_cursor = display.width()-160;
-      y_start += 70;
+      x_cursor = 10;
+      y_start = display.height()-20;
       display.setFont(&Ubuntu_M12pt8b);
     } else {
       y_start += 90;
@@ -409,21 +402,24 @@ void getClock() {
       display.setFont(&Ubuntu_M24pt8b);
     }
 
-    display.setTextColor(BLACK);
+    // Read temperature from NVS
+    nvs_get_i16(storage_handle, "rtc_temp", &temp);
+    double temperature = temp * 0.25;
+    
     display.setCursor(x_cursor, y_start);
-    display.printerf("%.1f | %.1f °C", temp, temp - ds3231_temp_correction);
+    display.printerf("%.1f°C", temperature - ds3231_temp_correction);
 
     if (display.width() > 200) {
       clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
     }
     display.refresh();
-    ESP_LOGI(pcTaskGetName(0), "%04d-%02d-%02d %02d:%02d:%02d, Week day:%d, %.2f °C", 
+    // DEBUG
+    /* ESP_LOGI(pcTaskGetName(0), "%04d-%02d-%02d %02d:%02d:%02d, Week day:%d, %.2f °C", 
         rtcinfo.tm_year, rtcinfo.tm_mon + 1,
-        rtcinfo.tm_mday, rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec, rtcinfo.tm_wday, temp);
-    // Wait some millis before switching off IT8951 otherwise last lines might not be printed
-    delay_ms(400);
-    
-    deep_sleep(DEEP_SLEEP_SECONDS);
+        rtcinfo.tm_mday, rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec, rtcinfo.tm_wday, temp); */
+    // Enable something like this if you want to print your clock only each x SECONDS
+    //delay(2000);
+    //deep_sleep(DEEP_SLEEP_SECONDS);
 }
 
 void display_print_sleep_msg() {
@@ -465,7 +461,7 @@ bool calc_night_mode(struct tm rtcinfo) {
     struct tm time_ini, time_rtc;
     // Night sleep? (Save battery)
     nvs_get_u8(storage_handle, "sleep_flag", &sleep_flag);
-    printf("sleep_flag:%d\n", sleep_flag);
+    //printf("sleep_flag:%d\n", sleep_flag);
 
     if (rtcinfo.tm_hour >= NIGHT_SLEEP_START && sleep_flag == 0) {
         // Save actual time struct in NVS
@@ -536,7 +532,7 @@ void wakeup_cause()
             break;
         }
         case ESP_SLEEP_WAKEUP_EXT1: {
-            uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
+            uint64_t wakeup_pin_mask = 0; // Check this on C3:  esp_sleep_get_ext1_wakeup_status();
             if (wakeup_pin_mask != 0) {
                 int pin = __builtin_ffsll(wakeup_pin_mask) - 1;
                 printf("Wake up from GPIO %d\n", pin);
@@ -558,12 +554,24 @@ void wakeup_cause()
     }
 }
 
+TaskHandle_t sqw_task;
+
+void sqw_clear(void* pvParameters) {
+  for (;;)
+  {
+    #if CONFIG_GET_CLOCK
+        getClock();
+    #endif
+      ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
+      delay(1000);
+  }
+}
+
 void app_main()
 {
   gpio_set_direction(LCD_EXTMODE, GPIO_MODE_OUTPUT);
   gpio_set_direction(LCD_DISP, GPIO_MODE_OUTPUT);// Display On(High)/Off(Low) 
-  gpio_set_level(LCD_DISP, 1);delay(50);
-
+  gpio_set_level(LCD_DISP, 1);
   gpio_set_level(LCD_EXTMODE, 1); // Using Ext com in HIGH mode-> Signal sent by RTC at 1 Hz
 
     // Initialize NVS
@@ -586,20 +594,42 @@ void app_main()
         ESP_LOGE(pcTaskGetName(0), "Could not init device descriptor.");
         while (1) { vTaskDelay(1); }
     }
+
     #if CONFIG_SET_CLOCK
-    // Set clock & Get clock
-        xTaskCreate(setClock, "setClock", 1024*4, NULL, 2, NULL);
-        return;
+       setClock();
     #endif
+
+  // Initialize RTC SQW
+  if (true)  {
+   
+//ds3231_enable_sqw(&dev, DS3231_1HZ); // Pending
+  struct tm time = {
+        .tm_sec  = 0,
+        .tm_min  = 0,
+        .tm_hour = 0,
+        .tm_mday = 0,
+        .tm_mon  = 0,  // 0-based
+        .tm_year = 0,
+        .tm_wday = 0
+    };
+  ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
+
+  ds3231_set_alarm(&dev, DS3231_ALARM_1, &time, DS3231_ALARM1_EVERY_SECOND,  &time, DS3231_ALARM2_EVERY_MIN);
+  ds3231_enable_alarm_ints(&dev, DS3231_ALARM_1);
+
+    if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
+        ESP_LOGE(pcTaskGetName(0), "Could not get time.");
+    } 
+    if (rtcinfo.tm_hour == 0 && rtcinfo.tm_min == 0 && rtcinfo.tm_year == 2000) {
+        setClock();
+    }
+
+
     // Maximum power saving (But slower WiFi which we use only to callibrate RTC)
     esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
 
     // Determine wakeup cause and clear RTC alarm flag
     wakeup_cause(); // Needs I2C dev initialized
-
-    if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
-        ESP_LOGE(pcTaskGetName(0), "Could not get time.");
-    }
 
     // Handle clock update for EU summertime
     #if SYNC_SUMMERTIME
@@ -673,7 +703,8 @@ void app_main()
     }
 
     display.begin();
-    display.setRotation(1);
+    //display.clearDisplay();
+    display.setRotation(2);
     ESP_LOGI(TAG, "CONFIG_SCL_GPIO = %d", CONFIG_SCL_GPIO);
     ESP_LOGI(TAG, "CONFIG_SDA_GPIO = %d", CONFIG_SDA_GPIO);
     ESP_LOGI(TAG, "CONFIG_TIMEZONE= %d", CONFIG_TIMEZONE);
@@ -681,7 +712,14 @@ void app_main()
     display.setFont(&Ubuntu_M24pt8b);
     maxx = display.width();
     maxy = display.height();
-   #if CONFIG_GET_CLOCK
-    getClock();
-   #endif
+   
+   xTaskCreatePinnedToCore(
+    sqw_clear, /* Task function. */
+    "sqw_task",    /* name of task. */
+    10000,     /* Stack size of task */
+    NULL,      /* parameter of the task */
+    1,         /* priority of the task */
+    &sqw_task, /* Task handle to keep track of created task */
+    0);    /* pin task to core 0 */
+  }
 }
