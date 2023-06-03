@@ -567,7 +567,7 @@ void sqw_clear(void* pvParameters) {
     #if CONFIG_GET_CLOCK
         getClock();
     #endif
-      ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
+      //ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
       delay(1000);
   }
 }
@@ -606,29 +606,14 @@ void app_main()
 
   // Initialize RTC SQW
   if (true)  {
+    ds3231_enable_sqw(&dev, DS3231_1HZ); // Squarewave |_|‾| for display
    
-//ds3231_enable_sqw(&dev, DS3231_1HZ); // Pending
-  struct tm time = {
-        .tm_sec  = 0,
-        .tm_min  = 0,
-        .tm_hour = 0,
-        .tm_mday = 0,
-        .tm_mon  = 0,  // 0-based
-        .tm_year = 0,
-        .tm_wday = 0
-    };
-  ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
-
-  ds3231_set_alarm(&dev, DS3231_ALARM_1, &time, DS3231_ALARM1_EVERY_SECOND,  &time, DS3231_ALARM2_EVERY_MIN);
-  ds3231_enable_alarm_ints(&dev, DS3231_ALARM_1);
-
     if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
         ESP_LOGE(pcTaskGetName(0), "Could not get time.");
     } 
     if (rtcinfo.tm_hour == 0 && rtcinfo.tm_min == 0 && rtcinfo.tm_year == 2000) {
         setClock();
     }
-
 
     // Maximum power saving (But slower WiFi which we use only to callibrate RTC)
     esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
@@ -641,9 +626,7 @@ void app_main()
     nvs_get_u8(storage_handle, "summertime", &summertime);
     // IMPORTANT: Do not forget to set summertime initially to 0 (leave it ready before march) or 1 (between March & October)
     //nvs_set_u8(storage_handle, "summertime", 0);
-    //printf("mday:%d mon:%d, wday:%d hr:%d summertime:%d\n\n",rtcinfo.tm_mday,rtcinfo.tm_mon,rtcinfo.tm_wday,rtcinfo.tm_hour,summertime);
-    // Just debug adding fake hour: if (rtcinfo.tm_mday > 6 && rtcinfo.tm_mon == 1 && rtcinfo.tm_wday == 2 && rtcinfo.tm_hour == 8 && summertime == 1) {
-    
+   
     // EU Summertime
     // Last sunday of March -> Forward 1 hour
     if (rtcinfo.tm_mday > 24 && rtcinfo.tm_mon == 2 && rtcinfo.tm_wday == 0 && rtcinfo.tm_hour == 8 && summertime == 0) {
@@ -708,7 +691,6 @@ void app_main()
     }
 
     display.begin();
-    //display.clearDisplay();
     display.setRotation(2);
     ESP_LOGI(TAG, "CONFIG_SCL_GPIO = %d", CONFIG_SCL_GPIO);
     ESP_LOGI(TAG, "CONFIG_SDA_GPIO = %d", CONFIG_SDA_GPIO);
@@ -718,13 +700,14 @@ void app_main()
     maxx = display.width();
     maxy = display.height();
    
+   // No need to do this with SquareWave in RTC
    xTaskCreatePinnedToCore(
-    sqw_clear, /* Task function. */
-    "sqw_task",    /* name of task. */
-    10000,     /* Stack size of task */
-    NULL,      /* parameter of the task */
-    1,         /* priority of the task */
-    &sqw_task, /* Task handle to keep track of created task */
-    0);    /* pin task to core 0 */
+    sqw_clear, // Task function
+    "sqw_task",// name of task
+    10000,     // Stack size of task
+    NULL,      // parameter of the task
+    1,         // priority of the task
+    &sqw_task, // Task handle to keep track of created task
+    0);    // pin task to core 0
   }
 }
