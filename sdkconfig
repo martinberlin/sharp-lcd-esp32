@@ -343,6 +343,18 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# RTC & I2C Configuration
+#
+CONFIG_SCL_GPIO=15
+CONFIG_SDA_GPIO=7
+CONFIG_TIMEZONE=2
+CONFIG_SET_CLOCK=y
+# CONFIG_GET_CLOCK is not set
+# CONFIG_DIFF_CLOCK is not set
+CONFIG_NTP_SERVER="pool.ntp.org"
+# end of RTC & I2C Configuration
+
+#
 # Example Connection Configuration
 #
 CONFIG_ENV_GPIO_RANGE_MIN=0
