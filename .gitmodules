@@ -1,0 +1,9 @@
+[submodule "components/sharp-lcd"]
+	path = components/sharp-lcd
+	url = https://github.com/martinberlin/SHARP_Memory_Display-IDF
+[submodule "components/Adafruit-GFX"]
+	path = components/Adafruit-GFX
+	url = https://github.com/martinberlin/Adafruit-GFX-Library-ESP-IDF
+[submodule "components/rtc/ds3231"]
+	path = components/rtc/ds3231
+	url = https://github.com/martinberlin/cpp-ds3231
