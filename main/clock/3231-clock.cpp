@@ -384,12 +384,17 @@ void getClock() {
     display.setTextColor(BLACK);
     display.setCursor(x_cursor, y_start);
     display.printerf("%02d:%02d", rtcinfo.tm_hour, rtcinfo.tm_min);
-    y_start = display.height()-32;
+    // Seconds
+    // Text based:
+    /* y_start = display.height()-32;
     x_cursor = display.width()-36;
     display.setFont(&Ubuntu_M12pt8b);
     display.setCursor(x_cursor, y_start);
-    // Seconds
-    display.printerf("%02d", rtcinfo.tm_sec);
+    display.printerf("%02d", rtcinfo.tm_sec); */
+    y_start = 80;
+    x_cursor = 4;
+    display.drawRect(x_cursor, y_start, 120, 14, BLACK);
+    display.fillRect(x_cursor, y_start+1, rtcinfo.tm_sec*2, 12, BLACK);
 
     // Print temperature
     if (display.width() <= 200) {
