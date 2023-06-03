@@ -1,5 +1,5 @@
 // Spanish translation
-char weekday_t[][12] = { "Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado" };
+char weekday_t[][12] = { "Dom.", "Lunes", "Martes", "Mierc.", "Jueves", "Viernes", "Sab." };
 char month_t[][12] = { "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"};
+                        "Julio", "Agosto", "Sept.", "Octubre", "Nov.", "Dic."};
 char temperature_suffix[] = "°C";

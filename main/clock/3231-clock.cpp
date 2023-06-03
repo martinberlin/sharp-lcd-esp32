@@ -359,16 +359,16 @@ void getClock() {
         nvs_set_i16(storage_handle, "rtc_temp", temp);
     }
     //ESP_LOGI("CLOCK", "\n%s\n%02d:%02d", weekday_t[rtcinfo.tm_wday], rtcinfo.tm_hour, rtcinfo.tm_min);
-    display.clearDisplay();
+    display.clearDisplayBuffer();
     display.setTextColor(BLACK);
     // Starting coordinates:
-    uint16_t y_start = 110;
+    uint16_t y_start = 40;
     uint16_t x_cursor = 10;
     
     // Print day number and month
     if (display.width() <= 200) {
-        y_start = 30;
-        x_cursor = 1;
+        y_start = 20;
+        x_cursor = 4;
         display.setFont(&Ubuntu_M8pt8b);
         display.setCursor(x_cursor, y_start);
     } else {
@@ -384,8 +384,8 @@ void getClock() {
     display.setTextColor(BLACK);
     display.setCursor(x_cursor, y_start);
     display.printerf("%02d:%02d", rtcinfo.tm_hour, rtcinfo.tm_min);
-    y_start += 26;
-    x_cursor = display.width()-40;
+    y_start = display.height()-32;
+    x_cursor = display.width()-36;
     display.setFont(&Ubuntu_M12pt8b);
     display.setCursor(x_cursor, y_start);
     // Seconds
@@ -394,10 +394,10 @@ void getClock() {
     // Print temperature
     if (display.width() <= 200) {
       x_cursor = 10;
-      y_start = display.height()-20;
+      y_start = display.height()-10;
       display.setFont(&Ubuntu_M12pt8b);
     } else {
-      y_start += 90;
+      y_start = display.height()-30;
       x_cursor+= 26;
       display.setFont(&Ubuntu_M24pt8b);
     }
