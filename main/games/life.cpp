@@ -16,6 +16,8 @@ extern "C"
 {
     void app_main();
 }
+void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
+
 
 uint16_t generateRandom(uint16_t max) {
     if (max>0) {
@@ -24,8 +26,6 @@ uint16_t generateRandom(uint16_t max) {
     }
     return 0;
 }
-
-void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
 //Current grid, max is 64x32 for 2048 byte Uno...
 // width must be multiple of 8
 // 8.6 iterations / second
@@ -123,7 +123,7 @@ void loop() {
      computeNewGeneration();
      delay(10);
      display.refresh();
-  } 
+  }
   
 }
 

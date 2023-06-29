@@ -53,8 +53,8 @@ nvs_handle_t storage_handle;
 
 /**
 ┌───────────────────────────┐
-│ CLOCK configuration       │ Device wakes up each N minutes
-└───────────────────────────┘ Takes about 3.5 seconds to run the program
+│ CLOCK configuration       │ Device wakes up each N minutes -> Not used but could be interesting for ultra-low consumption
+└───────────────────────────┘
 **/
 #define DEEP_SLEEP_SECONDS 4
 
@@ -77,6 +77,7 @@ uint8_t wakeup_min= 1;
 
 uint64_t USEC = 1000000;
 
+uint8_t clock_screen = 1; // 1 clock   2 game of life   3 sleep
 // Weekdays and months translatables (Select one only)
 //#include <catala.h>
 //#include <english.h>
@@ -111,18 +112,6 @@ static void IRAM_ATTR gpio_interrupt_handler(void *args)
 {
     int pinNumber = (int)args;
     xQueueSendFromISR(interputQueue, &pinNumber, NULL);
-}
-
-void button_task(void *params)
-{
-    int pinNumber, count = 0;
-    while (true)
-    {
-        if (xQueueReceive(interputQueue, &pinNumber, portMAX_DELAY))
-        {
-            printf("GPIO %d was pressed %d times. The state is %d\n", pinNumber, count++, gpio_get_level((gpio_num_t)pinNumber));
-        }
-    }
 }
 
 uint16_t generateRandom(uint16_t max) {
@@ -266,7 +255,7 @@ void setClock()
     display.printerf("%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
 
     if (sleep_mode) {
-        // Set RTC alarm
+        // Set RTC alarm. This won't work if RTC Int is not routed as input IO
         time.tm_hour = wakeup_hr;
         time.tm_min  = wakeup_min;
         display.println("RTC alarm set to this hour:");
@@ -282,9 +271,9 @@ void setClock()
 }
 
 // Round clock draw functions
-uint16_t clock_x_shift = 238;
-uint16_t clock_y_shift = 20;
-uint16_t clock_radius = 150;
+uint16_t clock_x_shift = 2;
+uint16_t clock_y_shift = 2;
+uint16_t clock_radius = 120;
 uint16_t maxx = 0;
 uint16_t maxy = 0;
 void secHand(uint8_t sec)
@@ -302,7 +291,7 @@ void secHand(uint8_t sec)
 
 void minHand(uint8_t min)
 {
-    int min_radius = clock_radius-20;
+    int min_radius = 60;
     float O;
     int x = maxx/2+clock_x_shift;
     int y = maxy/2+clock_y_shift;
@@ -311,13 +300,13 @@ void minHand(uint8_t min)
     y = y+min_radius*sin(O);
     display.drawLine(maxx/2+clock_x_shift,maxy/2+clock_y_shift,x,y, BLACK);
     display.drawLine(maxx/2+clock_x_shift,maxy/2-4+clock_y_shift,x,y, BLACK);
-    display.drawLine(maxx/2+clock_x_shift,maxy/2+4+clock_y_shift,x,y, BLACK);
-    display.drawLine(maxx/2+clock_x_shift,maxy/2+3+clock_y_shift,x,y-1, BLACK);
+    display.drawLine(maxx/2+clock_x_shift,maxy/2+4+clock_y_shift,x+1,y, BLACK);
+    display.drawLine(maxx/2+clock_x_shift,maxy/2+3+clock_y_shift,x+1,y-1, BLACK);
 }
 
 void hrHand(uint8_t hr, uint8_t min)
 {
-    uint16_t hand_radius = 60;
+    uint16_t hand_radius = 30;
     float O;
     int x = maxx/2+clock_x_shift;
     int y = maxy/2+clock_y_shift;
@@ -358,13 +347,89 @@ void clockLayout(uint8_t hr, uint8_t min, uint8_t sec)
     for(float j=M_PI/6;j<=(2*M_PI);j+=(M_PI/6)) {    /* marking the hours for every 30 degrees */
         x=(maxx/2)+clock_x_shift+clock_radius*cos(j);
         y=(maxy/2)+clock_y_shift+clock_radius*sin(j);        
-        display.fillCircle(x,y,6,0);
+        display.drawCircle(x,y,4,BLACK);
     }
 
     // Draw hour hands
     hrHand(hr, min);
     minHand(min);
-    //secHand(sec);
+    secHand(sec);
+}
+
+// GAME of Life (Credits: John Conway)
+
+//Current grid: width must be multiple of 8
+const uint8_t width = 128;
+const uint8_t height = 128;
+const uint8_t pixelSize = 2;
+const boolean displayIterations = true;
+const uint16_t maxGenerations = 1000;
+
+uint8_t grid[width * height];
+// should be possible to do without full copy buffer, but how ?
+uint8_t newgrid[width * height];
+
+uint8_t GFXsetBit[] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
+uint8_t GFXclrBit[] = { 0x7F, 0xBF, 0xDF, 0xEF, 0xF7, 0xFB, 0xFD, 0xFE };
+
+inline void setPixel(uint8_t* ptr, uint8_t x, uint8_t y, uint8_t color) {
+  uint16_t idx = (x + y * width)  / 8;  
+  if (color == 1) {
+    //     ptr[idx] |= (0x80 >> (x & 7));
+    // >> is slow on AVR (Adafruit)
+    ptr[idx] |= GFXsetBit[x & 7];
+  } else {
+    ptr[idx] &= GFXclrBit[x & 7];
+  }
+  display.drawPixel(x, y, color);
+}
+
+inline uint8_t getPixel(uint8_t* ptr, uint8_t x, uint8_t y) {
+  return display.getPixel(x, y);
+}
+
+//Initialize Grid
+void initGrid() {
+    for (uint8_t y = 0; y < height; y++) {
+       for (uint8_t x = 0; x < width; x++) {
+        if (x==0 || x==(width - 1) || y==0 || y== (height - 1)){
+          setPixel(grid, x, y, 0);
+        } else {
+            setPixel(grid, x, y, generateRandom(2)); 
+        }
+    }   
+  }
+}
+
+// order makes faster code ?
+inline uint8_t getNumberOfNeighbors(uint8_t x, uint8_t y){
+    return getPixel(grid, x-1, y)+
+  getPixel(grid, x+1, y)+
+  getPixel(grid, x-1, y-1)+
+  getPixel(grid, x, y-1)+
+  getPixel(grid, x+1, y-1)+
+  getPixel(grid, x-1, y+1)+
+  getPixel(grid, x, y+1)+
+  getPixel(grid, x+1, y+1);
+}
+
+void computeNewGeneration(){
+    for (uint8_t y = 1; y < (height - 1); y++) {
+      for (uint8_t x = 1; x < (width - 1); x++) {
+        uint8_t neighbors = getNumberOfNeighbors(x, y);
+        uint8_t current = getPixel(grid, x, y);
+        if (current == 1 && (neighbors == 2 || neighbors == 3 )) {
+          setPixel(newgrid, x, y, 1);
+        } else if (current==1)  
+          setPixel(newgrid, x, y, 0);
+        if (current==0 && (neighbors==3)) {
+          setPixel(newgrid, x, y, 1);
+        } else if (current==0) 
+          setPixel(newgrid, x, y, 0);
+    }  
+  }
+  // copy newgrid into grid
+  memcpy(grid, newgrid, width * height / 8);
 }
 
 
@@ -386,7 +451,12 @@ void getClock() {
     //ESP_LOGI("CLOCK", "\n%s\n%02d:%02d", weekday_t[rtcinfo.tm_wday], rtcinfo.tm_hour, rtcinfo.tm_min);
     display.clearDisplayBuffer();
     display.setTextColor(BLACK);
-    // Starting coordinates:
+
+    switch (clock_screen)
+    {
+    case 1:
+    {
+        // Starting coordinates:
     uint16_t y_start = 40;
     uint16_t x_cursor = 10;
     
@@ -438,10 +508,23 @@ void getClock() {
     
     display.setCursor(x_cursor, y_start);
     display.printerf("%.1f°C", temperature - ds3231_temp_correction);
-
-    if (display.width() > 200) {
-      clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
     }
+        break;
+    
+    case 2:
+        clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
+        break;
+    case 3:
+        initGrid();
+        // Takes a bit long but is worth the show
+        for (uint16_t gen = 0; gen < maxGenerations; gen++) {
+            computeNewGeneration();
+            delay(5);
+            display.refresh();
+        }
+    break;
+    }
+    
     display.refresh();
     // DEBUG
     /* ESP_LOGI(pcTaskGetName(0), "%04d-%02d-%02d %02d:%02d:%02d, Week day:%d, %.2f °C", 
@@ -595,6 +678,29 @@ void sqw_clear(void* pvParameters) {
       //ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
       delay(1000);
   }
+}
+
+void button_task(void *params)
+{
+    int pinNumber, count = 0;
+    while (true)
+    {
+        if (xQueueReceive(interputQueue, &pinNumber, portMAX_DELAY))
+        {
+            switch (pinNumber) {
+                case 8:
+                    clock_screen = 1;
+                break;
+                case 4:
+                    clock_screen = 2;
+                break;
+                case 10:
+                    clock_screen = 3;
+                break;
+            }
+            printf("GPIO %d was pressed %d times. The state is %d\n", pinNumber, count++, gpio_get_level((gpio_num_t)pinNumber));
+        }
+    }
 }
 
 void app_main()
