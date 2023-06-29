@@ -515,6 +515,10 @@ void getClock() {
         clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
         break;
     case 3:
+        /**
+         * @brief   Game of life. Adapted from delhoume example (Check games/life.cpp)
+         * @author  delhoume     (github)
+         */
         initGrid();
         // Takes a bit long but is worth the show
         for (uint16_t gen = 0; gen < maxGenerations; gen++) {

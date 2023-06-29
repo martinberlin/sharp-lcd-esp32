@@ -1,3 +1,12 @@
+/**
+ * @file life.cpp
+ * @author  delhoume     (github)
+ * @adapted martinberlin (github)
+ * @source https://github.com/delhoume/ssd1306_adafruit_game_of_life
+ * @version 0.1
+ * @date 2023-06-29
+ */
+
 #include "settings.h"
 #include <Adafruit_SharpMem.h>
 #include <esp_timer.h>
