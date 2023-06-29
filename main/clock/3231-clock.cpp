@@ -16,9 +16,13 @@ struct tm rtcinfo;
 #include "esp_timer.h"
 #include <time.h>
 #include <sys/time.h>
+// FreeRTOS
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "driver/gpio.h"
+
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -100,6 +104,26 @@ extern "C"
 }
 
 void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
+
+QueueHandle_t interputQueue;
+
+static void IRAM_ATTR gpio_interrupt_handler(void *args)
+{
+    int pinNumber = (int)args;
+    xQueueSendFromISR(interputQueue, &pinNumber, NULL);
+}
+
+void button_task(void *params)
+{
+    int pinNumber, count = 0;
+    while (true)
+    {
+        if (xQueueReceive(interputQueue, &pinNumber, portMAX_DELAY))
+        {
+            printf("GPIO %d was pressed %d times. The state is %d\n", pinNumber, count++, gpio_get_level((gpio_num_t)pinNumber));
+        }
+    }
+}
 
 uint16_t generateRandom(uint16_t max) {
     if (max>0) {
@@ -350,7 +374,8 @@ void getClock() {
     }
     // Get RTC date and time
     int16_t temp;
-
+    // Just debug deepsleep        deep_sleep(DEEP_SLEEP_SECONDS);
+    
     if (rtcinfo.tm_sec == 00) {
         if (ds3231_get_raw_temp(&dev, &temp) != ESP_OK) {
             ESP_LOGE(TAG, "Could not get temperature.");
@@ -574,10 +599,32 @@ void sqw_clear(void* pvParameters) {
 
 void app_main()
 {
-  gpio_set_direction(LCD_EXTMODE, GPIO_MODE_OUTPUT);
-  gpio_set_direction(LCD_DISP, GPIO_MODE_OUTPUT);// Display On(High)/Off(Low) 
-  gpio_set_level(LCD_DISP, 1);
-  gpio_set_level(LCD_EXTMODE, 1); // Using Ext com in HIGH mode-> Signal sent by RTC at 1 Hz
+    // Display pins config
+    gpio_set_direction(LCD_EXTMODE, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LCD_DISP, GPIO_MODE_OUTPUT);// Display On(High)/Off(Low) 
+    gpio_set_level(LCD_DISP, 1);
+    gpio_set_level(LCD_EXTMODE, 1); // Using Ext com in HIGH mode-> Signal sent by RTC at 1 Hz
+
+    // Buttons configuration
+    // zero-initialize the config structure.
+    gpio_config_t io_conf = {};
+    // interrupt of NEG edge
+    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+    // bit mask of the pins, check settings.h
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    // set as input mode
+    io_conf.mode = GPIO_MODE_INPUT;
+    // enable pull-up mode (Not needed if there are HW pull-ups)
+    io_conf.pull_up_en = (gpio_pullup_t)1;
+    gpio_config(&io_conf);
+
+    interputQueue = xQueueCreate(10, sizeof(int));
+    xTaskCreate(button_task, "button_task", 2048, NULL, 1, NULL);
+
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(PCB_BUTTON_1, gpio_interrupt_handler, (void *)PCB_BUTTON_1);
+    gpio_isr_handler_add(PCB_BUTTON_2, gpio_interrupt_handler, (void *)PCB_BUTTON_2);
+    gpio_isr_handler_add(PCB_BUTTON_3, gpio_interrupt_handler, (void *)PCB_BUTTON_3);
 
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
@@ -606,12 +653,12 @@ void app_main()
 
   // Initialize RTC SQW
   if (true)  {
-    ds3231_enable_sqw(&dev, DS3231_1HZ); // Squarewave |_|‾| for display
+    ds3231_enable_sqw(&dev, DS3231_4096HZ); // Squarewave |_|‾| for display DS3231_1HZ
    
     if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
         ESP_LOGE(pcTaskGetName(0), "Could not get time.");
     } 
-    if (rtcinfo.tm_hour == 0 && rtcinfo.tm_min == 0 && rtcinfo.tm_year == 2000) {
+    if (rtcinfo.tm_mday == 1 && rtcinfo.tm_year == 2000 && strcmp(CONFIG_EXAMPLE_WIFI_PASSWORD,"")!=0) {
         setClock();
     }
 
@@ -632,51 +679,13 @@ void app_main()
     if (rtcinfo.tm_mday > 24 && rtcinfo.tm_mon == 2 && rtcinfo.tm_wday == 0 && rtcinfo.tm_hour == 8 && summertime == 0) {
         nvs_set_u8(storage_handle, "summertime", 1);
         summertimeClock(rtcinfo, 1);
-        // Alternatively do this with internet sync (Only if there is fixed WiFi)
-        //xTaskCreate(setClock, "setClock", 1024*4, NULL, 2, NULL);
     }
     // Last sunday of October -> Back 1 hour
     if (rtcinfo.tm_mday > 24 && rtcinfo.tm_mon == 9 && rtcinfo.tm_wday == 0 && rtcinfo.tm_hour == 8 && summertime == 1) {
         nvs_set_u8(storage_handle, "summertime", 0);
         summertimeClock(rtcinfo, -1);
-        //xTaskCreate(setClock, "setClock", 1024*4, NULL, 2, NULL);
     }
     #endif
-
-    //sleep_flag = 0; // To preview night message
-    // Validate NIGHT_SLEEP_START (On -1 is disabled)
-   if (NIGHT_SLEEP_START >= 0 && NIGHT_SLEEP_START <= 23) {
-        bool night_mode = calc_night_mode(rtcinfo);
-
-        nvs_get_u8(storage_handle, "sleep_msg", &sleep_msg);
-        if (false) {
-          printf("NIGHT mode:%d | sleep_mode:%d | sleep_msg: %d | RTC IO: %d\n",
-          (uint8_t)night_mode, sleep_mode, sleep_msg, gpio_get_level(GPIO_RTC_INT));
-        }
-        if (night_mode) {
-            if (sleep_msg == 0) {
-                display_print_sleep_msg();
-            }
-            switch (sleep_mode)
-            {
-            case 0:
-                printf("Sleep Hrs from %d, %d hours\n", NIGHT_SLEEP_START, NIGHT_SLEEP_HRS);
-                deep_sleep(60*30); // Sleep 30 minutes
-                break;
-            /* RTC Wakeup */
-            case 1:
-                ESP_LOGI("EXT1_WAKEUP", "When IO %d is LOW", (uint8_t)GPIO_RTC_INT);
-                //esp_sleep_enable_ext0_wakeup(1ULL<<GPIO_RTC_INT, ESP_EXT0_WAKEUP_ALL_LOW);
-                // Sleep NIGHT_SLEEP_HRS + 20 minutes
-                // deep_sleep(NIGHT_SLEEP_HRS*60*60+(60*20));
-                esp_deep_sleep_start();
-                break;
-            default:
-                printf("Sleep %d mode not implemented\n", sleep_mode);
-                return;
-            }
-        }
-    }
 
     // Read stored
     nvs_get_i16(storage_handle, "boots", &nvs_boots);

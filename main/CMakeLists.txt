@@ -2,6 +2,7 @@ idf_component_register(SRCS
     #"tests/hello-lcd.cpp"
     #"tests/i2c-scan.cpp"
     "clock/3231-clock.cpp"
+    #"games/life.cpp"
 
     INCLUDE_DIRS translations
                  settings

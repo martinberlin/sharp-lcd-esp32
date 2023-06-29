@@ -10,8 +10,12 @@
 #define LCD_EXTMODE GPIO_NUM_3
 #define LCD_DISP    GPIO_NUM_2
 
-// Used either fro Touch INT or RTC int (Needs to get additional wiring)
-#define GPIO_RTC_INT GPIO_NUM_8
+// Buttons
+#define PCB_BUTTON_1 GPIO_NUM_4
+#define PCB_BUTTON_2 GPIO_NUM_8
+#define PCB_BUTTON_3 GPIO_NUM_10
+
+#define GPIO_INPUT_PIN_SEL  ((1ULL<<PCB_BUTTON_1) | (1ULL<<PCB_BUTTON_2) | (1ULL<<PCB_BUTTON_3))
 
 // LCD 1-bit color
 #define BLACK 0
