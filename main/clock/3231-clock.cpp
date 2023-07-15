@@ -31,20 +31,7 @@ struct tm rtcinfo;
 #include "esp_wifi.h"
 #include "protocol_examples_common.h"
 #include "esp_sntp.h"
-#include <inttypes.h>
-// Attention: Enabling slow CPU speed won't be able to sync the clock with WiFi
-#include "esp_pm.h"
 
-
-typedef struct {
-    int max_freq_mhz;         /*!< Maximum CPU frequency, in MHz */
-    int min_freq_mhz;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
-    bool light_sleep_enable;  /*!< Enter light sleep when no locks are taken */
-} esp_pm_config_t;
-#define TEN_IN_SIXTH           (1000000)
-#define SLOW_CPU_MHZ           5
-#define SLOW_CPU_SPEED         (SLOW_CPU_MHZ * TEN_IN_SIXTH)
-#define NORMAL_CPU_SPEED       (80 * TEN_IN_SIXTH)
 // SHARP LCD Class
 // Set the size of the display here, e.g. 128x128
 Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 128, 128);
@@ -118,37 +105,6 @@ extern "C"
 }
 
 void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
-
-//frequency reduction function
-uint8_t set_CPU_speed(uint32_t speed) {
-    uint8_t err = ESP_OK;
-    const int low_freq = SLOW_CPU_SPEED / TEN_IN_SIXTH;
-    const int hi_freq = NORMAL_CPU_SPEED / TEN_IN_SIXTH;
-    int _xt_tick_divisor = 0;
-    esp_pm_config_t pm_config;
-    switch (speed) {
-        case SLOW_CPU_SPEED:
-            pm_config.min_freq_mhz = low_freq;
-            pm_config.max_freq_mhz = low_freq;
-            err = esp_pm_configure(&pm_config);
-            if (err == ESP_OK) {
-                _xt_tick_divisor = SLOW_CPU_SPEED / configTICK_RATE_HZ;
-            }
-            break;
-        case NORMAL_CPU_SPEED:
-            pm_config.min_freq_mhz = hi_freq;
-            pm_config.max_freq_mhz = hi_freq;
-            err = esp_pm_configure(&pm_config);
-            if (err == ESP_OK) {
-                _xt_tick_divisor = NORMAL_CPU_SPEED / configTICK_RATE_HZ;
-            }
-            break;
-        default:
-            err = 0xFF;
-            break;
-    }
-    return err;
-}
 
 QueueHandle_t interputQueue;
 
@@ -553,22 +509,16 @@ void getClock() {
     display.setCursor(x_cursor, y_start);
     display.printerf("%.1f°C", temperature - ds3231_temp_correction);
     }
-        ESP_LOGI(TAG, "%d Mhz CPU", NORMAL_CPU_SPEED);
-        set_CPU_speed(SLOW_CPU_SPEED);
         break;
     
     case 2:
         clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
-        ESP_LOGI(TAG, "%d Mhz CPU", SLOW_CPU_SPEED);
-        set_CPU_speed(NORMAL_CPU_SPEED);
         break;
     case 3:
         /**
          * @brief   Game of life. Adapted from delhoume example (Check games/life.cpp)
          * @author  delhoume     (github)
          */
-        ESP_LOGI(TAG, "%d Mhz CPU", NORMAL_CPU_SPEED);
-        set_CPU_speed(NORMAL_CPU_SPEED);
         initGrid();
         // Takes a bit long but is worth the show
         for (uint16_t gen = 0; gen < maxGenerations; gen++) {
