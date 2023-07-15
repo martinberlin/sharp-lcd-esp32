@@ -31,7 +31,21 @@ struct tm rtcinfo;
 #include "esp_wifi.h"
 #include "protocol_examples_common.h"
 #include "esp_sntp.h"
+// Attention: Enabling slow CPU speed won't be able to sync the clock with WiFi
+#include "esp_pm.h"
+/* Enable CPU frequency changing depending on button press */
+#define USE_CPU_PM_SPEED 1
 
+typedef struct {
+    int max_freq_mhz;         /*!< Maximum CPU frequency, in MHz */
+    int min_freq_mhz;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
+    bool light_sleep_enable;  /*!< Enter light sleep when no locks are taken */
+} esp_pm_config_t;
+#define TEN_IN_SIXTH           (1000000)
+#define SLOW_CPU_MHZ           10
+#define SLOW_CPU_SPEED         (SLOW_CPU_MHZ * TEN_IN_SIXTH)
+#define NORMAL_CPU_SPEED       (80 * TEN_IN_SIXTH)
+uint32_t cpu_speed = NORMAL_CPU_SPEED;
 // SHARP LCD Class
 // Set the size of the display here, e.g. 128x128
 Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 128, 128);
@@ -107,6 +121,38 @@ extern "C"
 void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
 
 QueueHandle_t interputQueue;
+
+// CPU frequency management function
+uint8_t set_CPU_speed(uint32_t speed) {
+    cpu_speed = speed;
+    uint8_t err = ESP_OK;
+    const int low_freq = SLOW_CPU_SPEED / TEN_IN_SIXTH;
+    const int hi_freq = NORMAL_CPU_SPEED / TEN_IN_SIXTH;
+    int _xt_tick_divisor = 0;
+    esp_pm_config_t pm_config;
+    switch (speed) {
+        case SLOW_CPU_SPEED:
+            pm_config.min_freq_mhz = low_freq;
+            pm_config.max_freq_mhz = low_freq;
+            err = esp_pm_configure(&pm_config);
+            if (err == ESP_OK) {
+                _xt_tick_divisor = SLOW_CPU_SPEED / configTICK_RATE_HZ;
+            }
+            break;
+        case NORMAL_CPU_SPEED:
+            pm_config.min_freq_mhz = hi_freq;
+            pm_config.max_freq_mhz = hi_freq;
+            err = esp_pm_configure(&pm_config);
+            if (err == ESP_OK) {
+                _xt_tick_divisor = NORMAL_CPU_SPEED / configTICK_RATE_HZ;
+            }
+            break;
+        default:
+            err = 0xFF;
+            break;
+    }
+    return err;
+}
 
 static void IRAM_ATTR gpio_interrupt_handler(void *args)
 {
@@ -333,23 +379,8 @@ void hrHand(uint8_t hr, uint8_t min)
 
 void clockLayout(uint8_t hr, uint8_t min, uint8_t sec)
 {
-    //printf("%02d:%02d:%02d\n", hr, min, sec);    
-    // for(uint8_t i=1;i<9;i++) {
-        /* printing a round ring with outer radius of 5 pixel */
-    //    display.drawCircle(maxx/2+clock_x_shift, maxy/2+clock_y_shift, clock_radius-i, 0);
-    //}
     // Circle in the middleRound clock dra
-    display.drawCircle(maxx/2+clock_x_shift, maxy/2+clock_y_shift, 6, BLACK);
-
-    uint16_t x=maxx/2+clock_x_shift;
-    uint16_t y=maxy/2+clock_y_shift;
-
-    for(float j=M_PI/6;j<=(2*M_PI);j+=(M_PI/6)) {    /* marking the hours for every 30 degrees */
-        x=(maxx/2)+clock_x_shift+clock_radius*cos(j);
-        y=(maxy/2)+clock_y_shift+clock_radius*sin(j);        
-        display.drawCircle(x,y,4,BLACK);
-    }
-
+    display.fillCircle(maxx/2+clock_x_shift, maxy/2+clock_y_shift, 6, BLACK);
     // Draw hour hands
     hrHand(hr, min);
     minHand(min);
@@ -456,6 +487,12 @@ void getClock() {
     {
     case 1:
     {
+    #if USE_CPU_PM_SPEED == 1
+        if (cpu_speed != SLOW_CPU_SPEED) {
+            set_CPU_speed(SLOW_CPU_SPEED);
+            ESP_LOGI(TAG, "%d Mhz CPU", SLOW_CPU_SPEED);
+        }
+    #endif
         // Starting coordinates:
     uint16_t y_start = 40;
     uint16_t x_cursor = 10;
@@ -512,9 +549,21 @@ void getClock() {
         break;
     
     case 2:
+        #if USE_CPU_PM_SPEED == 1
+        if (cpu_speed != SLOW_CPU_SPEED) {
+            set_CPU_speed(SLOW_CPU_SPEED);
+            ESP_LOGI(TAG, "%d Mhz CPU", SLOW_CPU_SPEED);
+        }
+        #endif
         clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
         break;
     case 3:
+        #if USE_CPU_PM_SPEED == 1
+        if (cpu_speed != NORMAL_CPU_SPEED) {
+            set_CPU_speed(NORMAL_CPU_SPEED);
+            ESP_LOGI(TAG, "%d Mhz CPU", NORMAL_CPU_SPEED);
+        }
+        #endif
         /**
          * @brief   Game of life. Adapted from delhoume example (Check games/life.cpp)
          * @author  delhoume     (github)
