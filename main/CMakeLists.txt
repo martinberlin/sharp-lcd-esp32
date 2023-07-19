@@ -1,6 +1,7 @@
 idf_component_register(SRCS 
     #"tests/hello-lcd.cpp"
     #"tests/i2c-scan.cpp"
+    #"tests/pm-cpu-speed.c"
     "clock/3231-clock.cpp"
     #"games/life.cpp"
 

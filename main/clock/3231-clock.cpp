@@ -31,20 +31,21 @@ struct tm rtcinfo;
 #include "esp_wifi.h"
 #include "protocol_examples_common.h"
 #include "esp_sntp.h"
+
 // Attention: Enabling slow CPU speed won't be able to sync the clock with WiFi
 #include "esp_pm.h"
+#include "esp_private/esp_clk.h"
 /* Enable CPU frequency changing depending on button press */
 #define USE_CPU_PM_SPEED 1
 
 typedef struct {
-    int max_freq_mhz;         /*!< Maximum CPU frequency, in MHz */
-    int min_freq_mhz;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
+    int max_cpu_freq;         /*!< Maximum CPU frequency, in MHz */
+    int min_cpu_freq;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
     bool light_sleep_enable;  /*!< Enter light sleep when no locks are taken */
 } esp_pm_config_t;
-#define TEN_IN_SIXTH           (1000000)
-#define SLOW_CPU_MHZ           10
-#define SLOW_CPU_SPEED         (SLOW_CPU_MHZ * TEN_IN_SIXTH)
-#define NORMAL_CPU_SPEED       (80 * TEN_IN_SIXTH)
+
+#define SLOW_CPU_SPEED         40
+#define NORMAL_CPU_SPEED       80
 uint32_t cpu_speed = NORMAL_CPU_SPEED;
 // SHARP LCD Class
 // Set the size of the display here, e.g. 128x128
@@ -84,6 +85,7 @@ nvs_handle_t storage_handle;
 // sleep_mode=0 wakes up every 10 min till NIGHT_SLEEP_HRS. Useful to log some sensors while epaper does not update
 uint8_t sleep_mode = 0;
 bool rtc_wakeup = true;
+int _xt_tick_divisor = 0;
 // sleep_mode=1 requires precise wakeup time and will use NIGHT_SLEEP_HRS+20 min just as a second unprecise wakeup if RTC alarm fails
 // Needs menuconfig --> DS3231 Configuration -> Set clock in order to store this alarm once
 uint8_t wakeup_hr = 7;
@@ -123,35 +125,18 @@ void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
 QueueHandle_t interputQueue;
 
 // CPU frequency management function
-uint8_t set_CPU_speed(uint32_t speed) {
-    cpu_speed = speed;
-    uint8_t err = ESP_OK;
-    const int low_freq = SLOW_CPU_SPEED / TEN_IN_SIXTH;
-    const int hi_freq = NORMAL_CPU_SPEED / TEN_IN_SIXTH;
-    int _xt_tick_divisor = 0;
-    esp_pm_config_t pm_config;
-    switch (speed) {
-        case SLOW_CPU_SPEED:
-            pm_config.min_freq_mhz = low_freq;
-            pm_config.max_freq_mhz = low_freq;
-            err = esp_pm_configure(&pm_config);
-            if (err == ESP_OK) {
-                _xt_tick_divisor = SLOW_CPU_SPEED / configTICK_RATE_HZ;
-            }
-            break;
-        case NORMAL_CPU_SPEED:
-            pm_config.min_freq_mhz = hi_freq;
-            pm_config.max_freq_mhz = hi_freq;
-            err = esp_pm_configure(&pm_config);
-            if (err == ESP_OK) {
-                _xt_tick_divisor = NORMAL_CPU_SPEED / configTICK_RATE_HZ;
-            }
-            break;
-        default:
-            err = 0xFF;
-            break;
+void set_CPU_speed(int mhz) {
+    cpu_speed = mhz;
+    esp_pm_config_t pm_config = {
+    .max_cpu_freq = mhz,
+    .min_cpu_freq = 40
+    };
+    ESP_ERROR_CHECK( esp_pm_configure(&pm_config) );
+    printf("Waiting for frequency to be set to %d MHz...\n", mhz);
+    while (esp_clk_cpu_freq() / 1000000 != mhz) {
+        vTaskDelay(10);
     }
-    return err;
+    printf("Frequency is set to %d MHz\n", mhz);
 }
 
 static void IRAM_ATTR gpio_interrupt_handler(void *args)
@@ -487,10 +472,10 @@ void getClock() {
     {
     case 1:
     {
+        // Default CPU speed here. Do not call PM to set it wince might disturb WiFi
     #if USE_CPU_PM_SPEED == 1
-        if (cpu_speed != SLOW_CPU_SPEED) {
-            set_CPU_speed(SLOW_CPU_SPEED);
-            ESP_LOGI(TAG, "%d Mhz CPU", SLOW_CPU_SPEED);
+        if (cpu_speed != NORMAL_CPU_SPEED) {
+            set_CPU_speed(NORMAL_CPU_SPEED);
         }
     #endif
         // Starting coordinates:
@@ -552,29 +537,33 @@ void getClock() {
         #if USE_CPU_PM_SPEED == 1
         if (cpu_speed != SLOW_CPU_SPEED) {
             set_CPU_speed(SLOW_CPU_SPEED);
-            ESP_LOGI(TAG, "%d Mhz CPU", SLOW_CPU_SPEED);
         }
         #endif
         clockLayout(rtcinfo.tm_hour, rtcinfo.tm_min, rtcinfo.tm_sec);
         break;
     case 3:
-        #if USE_CPU_PM_SPEED == 1
-        if (cpu_speed != NORMAL_CPU_SPEED) {
-            set_CPU_speed(NORMAL_CPU_SPEED);
-            ESP_LOGI(TAG, "%d Mhz CPU", NORMAL_CPU_SPEED);
-        }
-        #endif
         /**
          * @brief   Game of life. Adapted from delhoume example (Check games/life.cpp)
+         *          CPU Frequency: Depending on speed selected with buttons (1 slow / 2 80Mhz)
          * @author  delhoume     (github)
          */
+        uint8_t delay_ms = 25;
+        switch (cpu_speed)
+            {
+            case NORMAL_CPU_SPEED:
+                delay_ms = 2;
+                break;
+            }
         initGrid();
         // Takes a bit long but is worth the show
         for (uint16_t gen = 0; gen < maxGenerations; gen++) {
             computeNewGeneration();
-            delay(5);
+            
+            delay(delay_ms);
             display.refresh();
         }
+        delay(2000);
+        clock_screen = 1;
     break;
     }
     
