@@ -37,12 +37,17 @@ struct tm rtcinfo;
 #include "esp_private/esp_clk.h"
 /* Enable CPU frequency changing depending on button press */
 #define USE_CPU_PM_SPEED 1
-
 typedef struct {
     int max_cpu_freq;         /*!< Maximum CPU frequency, in MHz */
     int min_cpu_freq;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
     bool light_sleep_enable;  /*!< Enter light sleep when no locks are taken */
 } esp_pm_config_t;
+/* Button GPIOs */
+#define BUTTON_1 8
+#define BUTTON_2 4
+#define BUTTON_3 10
+
+
 
 #define SLOW_CPU_SPEED         40
 #define NORMAL_CPU_SPEED       80
@@ -561,8 +566,9 @@ void getClock() {
             
             delay(delay_ms);
             display.refresh();
+            if (gpio_get_level((gpio_num_t)BUTTON_2) == 0) break;
         }
-        delay(2000);
+        delay(1000);
         clock_screen = 1;
     break;
     }
@@ -730,13 +736,13 @@ void button_task(void *params)
         if (xQueueReceive(interputQueue, &pinNumber, portMAX_DELAY))
         {
             switch (pinNumber) {
-                case 8:
+                case BUTTON_1:
                     clock_screen = 1;
                 break;
-                case 4:
+                case BUTTON_2:
                     clock_screen = 2;
                 break;
-                case 10:
+                case BUTTON_3:
                     clock_screen = 3;
                 break;
             }
