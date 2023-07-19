@@ -42,13 +42,9 @@ typedef struct {
     int min_cpu_freq;         /*!< Minimum CPU frequency to use when no locks are taken, in MHz */
     bool light_sleep_enable;  /*!< Enter light sleep when no locks are taken */
 } esp_pm_config_t;
-/* Button GPIOs */
-#define BUTTON_1 8
-#define BUTTON_2 4
-#define BUTTON_3 10
+/* Button GPIOs defined in settings.h */
 
-
-
+/* CPU speed settings*/
 #define SLOW_CPU_SPEED         40
 #define NORMAL_CPU_SPEED       80
 uint32_t cpu_speed = NORMAL_CPU_SPEED;
