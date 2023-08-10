@@ -7,3 +7,9 @@
 [submodule "components/rtc/ds3231"]
 	path = components/rtc/ds3231
 	url = https://github.com/martinberlin/cpp-ds3231
+[submodule "components/lvgl"]
+	path = components/lvgl
+	url = https://github.com/lvgl/lvgl.git
+[submodule "components/lvgl_esp32_drivers"]
+	path = components/lvgl_esp32_drivers
+	url = https://github.com/lvgl/lvgl_esp32_drivers.git
