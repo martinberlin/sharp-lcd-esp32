@@ -69,22 +69,12 @@ nvs_handle_t storage_handle;
 
 /**
 ┌───────────────────────────┐
-│ CLOCK configuration       │ Device wakes up each N minutes -> Not used but could be interesting for ultra-low consumption
+│ CLOCK configuration       │ Device goes to sleep after 
 └───────────────────────────┘
 **/
-#define DEEP_SLEEP_SECONDS 4
+#define DEEP_SLEEP_AFTER_SECONDS 60
+uint16_t seconds_running = 0;
 
-/**
-┌───────────────────────────┐
-│ NIGHT MODE configuration  │ Make the module sleep in the night to save battery power
-└───────────────────────────┘
-**/
-// Leave NIGHT_SLEEP_START in -1 to never sleep. Example START: 22 HRS: 8  will sleep from 10PM till 6 AM
-#define NIGHT_SLEEP_START 22
-#define NIGHT_SLEEP_HRS   8
-// sleep_mode=1 uses precise RTC wake up. RTC alarm pulls GPIO_RTC_INT low when triggered
-// sleep_mode=0 wakes up every 10 min till NIGHT_SLEEP_HRS. Useful to log some sensors while epaper does not update
-uint8_t sleep_mode = 0;
 bool rtc_wakeup = true;
 int _xt_tick_divisor = 0;
 // sleep_mode=1 requires precise wakeup time and will use NIGHT_SLEEP_HRS+20 min just as a second unprecise wakeup if RTC alarm fails
@@ -286,7 +276,8 @@ void setClock()
 
     display.printerf("%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
 
-    if (sleep_mode) {
+    // Not implemented since we are not routing RTC int to an input IO
+    if (false) {
         // Set RTC alarm. This won't work if RTC Int is not routed as input IO
         time.tm_hour = wakeup_hr;
         time.tm_min  = wakeup_min;
@@ -449,6 +440,23 @@ void computeNewGeneration(){
   memcpy(grid, newgrid, width * height / 8);
 }
 
+void display_print_sleep_msg(char * message, uint8_t y) {
+    display.setFont(&Ubuntu_M12pt8b);
+    display.setTextColor(BLACK);
+    display.fillRect(1, y-20, display.width(), 40, WHITE);
+    display.setCursor(20, y);
+    display.print(message);
+
+    float temp;
+    if (ds3231_get_temp_float(&dev, &temp) == ESP_OK) {
+        y += 13;
+        display.setFont(&Ubuntu_M8pt8b);
+        display.setCursor(70, y);
+        display.printerf("%.2f°C", temp);
+    }
+
+    delay_ms(180);
+}
 
 void getClock() {
     if (ds3231_get_time(&dev, &rtcinfo) != ESP_OK) {
@@ -568,7 +576,15 @@ void getClock() {
         clock_screen = 1;
     break;
     }
-    
+
+    if (seconds_running >= DEEP_SLEEP_AFTER_SECONDS) {
+        gpio_hold_en(LCD_DISP);
+        display_print_sleep_msg((char *)"[SLEEP]", 102);
+        display.refresh();
+        delay(10);
+        esp_light_sleep_start();
+    }
+
     display.refresh();
     // DEBUG
     /* ESP_LOGI(pcTaskGetName(0), "%04d-%02d-%02d %02d:%02d:%02d, Week day:%d, %.2f °C", 
@@ -579,107 +595,12 @@ void getClock() {
     //deep_sleep(DEEP_SLEEP_SECONDS);
 }
 
-void display_print_sleep_msg() {
-    nvs_set_u8(storage_handle, "sleep_msg", 1);
-
-    // Wait until board is fully powered
-    delay_ms(80);
-    display.begin();
-    
-    display.setFont(&Ubuntu_M12pt8b);
-    unsigned int color = WHITE;
-
-    display.fillRect(0, 0, display.width() , display.height(), color);
-    uint16_t y_start = display.height()/2;
-    display.setCursor(10, y_start);
-    display.print("NIGHT SLEEP");
-    display.setCursor(10, y_start+44);
-    display.printerf("%d:00 + %d Hrs.", NIGHT_SLEEP_START, NIGHT_SLEEP_HRS);
-
-    float temp;
-    if (ds3231_get_temp_float(&dev, &temp) == ESP_OK) {
-        y_start+= 384;
-        display.setTextColor(BLACK);
-        display.setCursor(100, y_start);
-        display.printerf("%.2f C", temp);
-    }
-    delay_ms(180);
-}
-
 // NVS variable to know how many times the ESP32 wakes up
 int16_t nvs_boots = 0;
 uint8_t sleep_flag = 0;
 uint8_t sleep_msg = 0;
 // Flag to know if summertime is active
 uint8_t summertime = 0;
-
-// Calculates if it's night mode
-bool calc_night_mode(struct tm rtcinfo) {
-    struct tm time_ini, time_rtc;
-    // Night sleep? (Save battery)
-    nvs_get_u8(storage_handle, "sleep_flag", &sleep_flag);
-    //printf("sleep_flag:%d\n", sleep_flag);
-
-    if (rtcinfo.tm_hour >= NIGHT_SLEEP_START && sleep_flag == 0) {
-        // Save actual time struct in NVS
-        nvs_set_u8(storage_handle, "sleep_flag", 1);
-        
-        nvs_set_u16(storage_handle, "nm_year", rtcinfo.tm_year);
-        nvs_set_u8(storage_handle, "nm_mon",  rtcinfo.tm_mon);
-        nvs_set_u8(storage_handle, "nm_mday", rtcinfo.tm_mday);
-        nvs_set_u8(storage_handle, "nm_hour", rtcinfo.tm_hour);
-        nvs_set_u8(storage_handle, "nm_min", rtcinfo.tm_min);
-        printf("night mode nm_* time saved %d:%d\n", rtcinfo.tm_hour, rtcinfo.tm_min);
-        return true;
-    }
-    if (sleep_flag == 1) {
-        uint8_t tm_mon,tm_mday,tm_hour,tm_min;
-        uint16_t tm_year;
-        nvs_get_u16(storage_handle, "nm_year", &tm_year);
-        nvs_get_u8(storage_handle, "nm_mon", &tm_mon);
-        nvs_get_u8(storage_handle, "nm_mday", &tm_mday);
-        nvs_get_u8(storage_handle, "nm_hour", &tm_hour);
-        nvs_get_u8(storage_handle, "nm_min", &tm_min);
-
-        struct tm time_ini_sleep = {
-            .tm_sec  = 0,
-            .tm_min  = tm_min,
-            .tm_hour = tm_hour,
-            .tm_mday = tm_mday,
-            .tm_mon  = tm_mon,  // 0-based
-            .tm_year = tm_year - 1900,
-        };
-        // update 'rtcnow' variable with current time
-        char strftime_buf[64];
-
-        time_t startnm = mktime(&time_ini_sleep);
-        // RTC stores year 2022 as 122
-        rtcinfo.tm_year -= 1900;
-        time_t rtcnow = mktime(&rtcinfo);
-
-        localtime_r(&startnm, &time_ini);
-        localtime_r(&rtcnow, &time_rtc);
-        // Some debug to see what we compare
-        if (false) {
-            strftime(strftime_buf, sizeof(strftime_buf), "%F %r", &time_ini);
-            ESP_LOGI(pcTaskGetName(0), "INI datetime is: %s", strftime_buf);
-            strftime(strftime_buf, sizeof(strftime_buf), "%F %r", &time_rtc);
-            ESP_LOGI(pcTaskGetName(0), "RTC datetime is: %s", strftime_buf);
-        }
-        // Get the time difference
-        double timediff = difftime(rtcnow, startnm);
-        uint16_t wake_seconds = NIGHT_SLEEP_HRS * 60 * 60;
-        ESP_LOGI(pcTaskGetName(0), "Time difference is:%f Wait till:%d seconds", timediff, wake_seconds);
-        if (timediff >= wake_seconds) {
-            nvs_set_u8(storage_handle, "sleep_flag", 0);
-        } else {
-            return true;
-        }
-        // ONLY Debug and testing
-        //nvs_set_u8(storage_handle, "sleep_flag", 0);
-    }
-  return false;
-}
 
 void wakeup_cause()
 {
@@ -689,17 +610,7 @@ void wakeup_cause()
             break;
         }
         case ESP_SLEEP_WAKEUP_EXT1: {
-            uint64_t wakeup_pin_mask = 0; // Check this on C3:  esp_sleep_get_ext1_wakeup_status();
-            if (wakeup_pin_mask != 0) {
-                int pin = __builtin_ffsll(wakeup_pin_mask) - 1;
-                printf("Wake up from GPIO %d\n", pin);
-            } else {
-                printf("Wake up from GPIO\n");
-            }
-
-            rtc_wakeup = true;
-            // Woke up from RTC, clear alarm flag
-            ds3231_clear_alarm_flags(&dev, DS3231_ALARM_2);
+            printf("Wake up from GPIO\n");
             break;
         }
         case ESP_SLEEP_WAKEUP_TIMER: {
@@ -721,12 +632,13 @@ void sqw_clear(void* pvParameters) {
     #endif
       //ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
       delay(1000);
+      seconds_running++;
   }
 }
 
 void button_task(void *params)
 {
-    int pinNumber, count = 0;
+    int pinNumber;
     while (true)
     {
         if (xQueueReceive(interputQueue, &pinNumber, portMAX_DELAY))
@@ -742,7 +654,9 @@ void button_task(void *params)
                     clock_screen = 3;
                 break;
             }
-            printf("GPIO %d was pressed %d times. The state is %d\n", pinNumber, count++, gpio_get_level((gpio_num_t)pinNumber));
+            // Pressing any button resets the seconds_running counter
+            seconds_running = 0;
+            printf("Button IO %d was pressed. state:%d\n", pinNumber, gpio_get_level((gpio_num_t)pinNumber));
         }
     }
 }
@@ -800,7 +714,11 @@ void app_main()
     #if CONFIG_SET_CLOCK
        setClock();
     #endif
-
+    // Setup Wakeup source
+    gpio_wakeup_enable(PCB_BUTTON_1, GPIO_INTR_LOW_LEVEL);
+    gpio_wakeup_enable(PCB_BUTTON_2, GPIO_INTR_LOW_LEVEL);
+    gpio_wakeup_enable(PCB_BUTTON_3, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
   // Initialize RTC SQW
   if (true)  {
     ds3231_enable_sqw(&dev, DS3231_4096HZ); // Squarewave |_|‾| for display DS3231_1HZ
