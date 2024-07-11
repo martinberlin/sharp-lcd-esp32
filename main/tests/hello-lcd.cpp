@@ -8,28 +8,23 @@
 #include "ds3231.h"
 
 // PCB Pins for LCD SPI
-// C3
-/* 
-#define SHARP_SCK  6
-#define SHARP_MOSI 0
-#define SHARP_SS   7 */
 
 //ESP32
-#define SHARP_SCK  18
-#define SHARP_MOSI 23
-#define SHARP_SS   5
+#define SHARP_SCK  1
+#define SHARP_MOSI 2
+#define SHARP_SS   3
 
 // I2C
 //#define SDA_GPIO GPIO_NUM_5  //C3
-#define SDA_GPIO GPIO_NUM_21  //ESP32
-#define SCL_GPIO GPIO_NUM_1
+#define SDA_GPIO GPIO_NUM_7  //ESP32
+#define SCL_GPIO GPIO_NUM_8
 i2c_dev_t dev;
 
 #define BLACK 0
 #define WHITE 1
 
 // External COM Inversion Signal
-#define LCD_EXTMODE GPIO_NUM_3
+#define LCD_EXTMODE GPIO_NUM_14
 //#define LCD_DISP    GPIO_NUM_2 //C3
 #define LCD_DISP    GPIO_NUM_4
 
@@ -119,29 +114,19 @@ void app_main() {
       while (1) { vTaskDelay(1); }
   }
 
-  //ds3231_enable_sqw(&dev, DS3231_1HZ);
-  struct tm time = {
-        .tm_sec  = 0,
-        .tm_min  = 0,
-        .tm_hour = 12,
-        .tm_mday = 1,
-        .tm_mon  = 5,  // 0-based
-        .tm_year = 2023,
-        .tm_wday = 1
-    };
-  ds3231_clear_alarm_flags(&dev, DS3231_ALARM_1);
+  // Enable SQW for LCD:
+  ds3231_enable_sqw(&dev, DS3231_1HZ);
 
-  ds3231_set_alarm(&dev, DS3231_ALARM_1, &time, DS3231_ALARM1_EVERY_SECOND,  &time, DS3231_ALARM2_EVERY_MIN);
-  ds3231_enable_alarm_ints(&dev, DS3231_ALARM_1);
-  xTaskCreatePinnedToCore(
-    sqw_clear, /* Task function. */
-    "sqw_task",    /* name of task. */
-    10000,     /* Stack size of task */
-    NULL,      /* parameter of the task */
-    1,         /* priority of the task */
-    &sqw_task, /* Task handle to keep track of created task */
-    0);    /* pin task to core 0 */
-  }
+  // No need to clear alarm flags in SQW mode
+  //xTaskCreatePinnedToCore(
+  //  sqw_clear, /* Task function. */
+  //  "sqw_task",    /* name of task. */
+  //  10000,     /* Stack size of task */
+  //  NULL,      /* parameter of the task */
+  //  1,         /* priority of the task */
+  //  &sqw_task, /* Task handle to keep track of created task */
+  //  0);    /* pin task to core 0 */
+  // }
 
 
   display.begin();
