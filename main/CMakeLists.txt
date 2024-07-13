@@ -1,7 +1,8 @@
 idf_component_register(SRCS 
 #"lvgl-demo/ux.cpp"
-"tests/lcd-touch.cpp"
+#"tests/lcd-touch.cpp"
     #"tests/lcd-only.cpp"
+    "tests/mxt-touch-lcd.cpp"
     #"tests/hello-lcd.cpp"
     #"tests/i2c-scan.cpp"
     #"tests/pm-cpu-speed.c"
