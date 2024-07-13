@@ -1,7 +1,10 @@
 
 #include <stdio.h>
+// Free RTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+
 #include <Adafruit_SharpMem.h>
 #include "driver/gpio.h"
 #include "esp_sleep.h"
@@ -12,6 +15,8 @@
 #include "driver/rtc_io.h"
 
 #include "ds3231.h"
+
+SemaphoreHandle_t TouchSemaphore;
 
 // MXT MaxTouch initialization
 #define MXT144_ADDR 0x4A
@@ -83,12 +88,21 @@ extern "C"
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
 
 
-
+/**
+ * @brief Function to emulate Bitbank2 bb_captouch. Needs time debug, takes like half a second...
+ * 
+ * @param i2c_addr 
+ * @param u16Register 
+ * @param pData 
+ * @param iLen 
+ * @return int 
+ */
 int I2CReadRegister16(uint8_t i2c_addr, uint16_t u16Register, uint8_t *pData, int iLen)
 {
   int i = 0;
 
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
   i2c_master_start(cmd);
   // first, send device address (indicating write) & register to be written
   i2c_master_write_byte(cmd, ( i2c_addr << 1 ) | WRITE_BIT, ACK_CHECK_EN);
@@ -97,17 +111,17 @@ int I2CReadRegister16(uint8_t i2c_addr, uint16_t u16Register, uint8_t *pData, in
   i2c_master_write_byte(cmd, (uint8_t)(u16Register>>8), ACK_CHECK_EN);
   i2c_master_stop(cmd);
 
-  esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
+  esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 100 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-
   cmd = i2c_cmd_link_create();
+
   i2c_master_start(cmd);
-  // now send device address (indicating read) & read data
+  // now send device address indicating read & read data
   i2c_master_write_byte(cmd, ( i2c_addr << 1 ) | READ_BIT, ACK_CHECK_EN);
   i2c_master_read(cmd, pData, iLen, (i2c_ack_type_t) ACK_VAL);
-  
   i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
+
+  ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 100 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   return ret;
 } /* I2CReadRegister16() */
@@ -123,15 +137,69 @@ uint16_t u16, u16Offset;
    I2CReadRegister16(MXT144_ADDR, 0, ucTemp, 7);
    iObjCount = ucTemp[6];
    if (iObjCount < 1 || iObjCount >64) { // invalid number of items
-      printf("INVALID object count = %d\n", iObjCount);
+      printf("Invalid object count = %d\n", iObjCount);
 
       return ESP_FAIL;
    }
    u16Offset = 7; // starting offset of first object
    // Read the objects one by one to get the memory offests to the info we will need
    iReportID = 1;
-   printf("object count = %d\n", iObjCount);
+   printf("Good object count = %d\n", iObjCount);
+
+   for (i=0; i<iObjCount; i++) {
+      I2CReadRegister16(MXT144_ADDR, u16Offset, ucTemp, 6);
+      printf("object %d, type %d\n", i, ucTemp[0]);
+      u16 = ucTemp[1] | (ucTemp[2] << 8);
+      switch (ucTemp[0]) {
+         case 2:
+            _mxtdata.t2_encryption_status_address = u16;
+            break;
+         case 5:
+            _mxtdata.t5_message_processor_address = u16;
+            _mxtdata.t5_max_message_size = ucTemp[4] - 1;
+            break;
+         case 6:
+            _mxtdata.t6_command_processor_address = u16;
+            break;
+         case 7:
+            _mxtdata.t7_powerconfig_address = u16;
+            break;
+         case 8:
+            _mxtdata.t8_acquisitionconfig_address = u16;
+            break;
+         case 44:
+            _mxtdata.t44_message_count_address = u16;
+            break;
+         case 46:
+            _mxtdata.t46_cte_config_address = u16;
+            break;
+         case 100:
+            _mxtdata.t100_multiple_touch_touchscreen_address = u16;
+            _mxtdata.t100_first_report_id = iReportID;
+            break;
+         default:
+            break;
+      } // switch on type
+      u16Offset += 6; // size in bytes of an object table
+      iReportID += ucTemp[5] * (ucTemp[4] + 1);
+   } // for each report
+   printf("init success, count offset = %d\n", _mxtdata.t44_message_count_address);
    return ESP_OK;
+}
+
+void IRAM_ATTR isr_touch(void* arg)
+{
+	/* Un-block the interrupt processing task now */
+    xSemaphoreGive(TouchSemaphore);
+}
+
+void process_touch_task(void*arg)
+{
+	/* Task move to Block state to wait for interrupt event */
+  while (true) {
+    xSemaphoreTake(TouchSemaphore, portMAX_DELAY);
+    printf("TOUCHED\n");
+  }
 }
 
 
@@ -151,8 +219,24 @@ void app_main() {
   // Enable SQW for LCD:
   ds3231_enable_sqw(&dev, DS3231_1HZ);
 
+  TouchSemaphore = xSemaphoreCreateMutex();
   // Begin initializing touch
   initMXT();
+  // INT Touch pin 
+  // INT pin triggers the callback function on the Falling edge of the GPIO
+  gpio_config_t io_conf;
+  io_conf.intr_type = GPIO_INTR_NEGEDGE; // Negative or falling edge
+  io_conf.pin_bit_mask = 1ULL<< TOUCH_INT;  
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pull_down_en = (gpio_pulldown_t) 0; // disable pull-down mode
+  io_conf.pull_up_en   = (gpio_pullup_t) 1;   // pull-up mode
+  gpio_config(&io_conf);
+
+  esp_err_t isr_service = gpio_install_isr_service(0);
+  printf("ISR trigger install response: 0x%x %s\n", isr_service, (isr_service==0)?"ESP_OK":"");
+  gpio_isr_handler_add((gpio_num_t)TOUCH_INT, isr_touch, (void*) 1);
+
+  xTaskCreatePinnedToCore(process_touch_task, "process_touch_task", 4096, NULL, 1, NULL, 0);
 
   display.begin();
   display.clearDisplay();
@@ -161,21 +245,8 @@ void app_main() {
   display.setTextSize(3);
   display.setTextColor(BLACK);
 
-  display.print("Hello SHARP");  
+  display.print("Hello SHARP");
+  display.println("Hola Larry");
+  display.println("amigo mio");
   display.refresh();
-  delay(500);
-
-    const gpio_config_t config = {
-        .pin_bit_mask = BIT(TOUCH_INT),
-        .mode = GPIO_MODE_INPUT,
-    };
-
-    ESP_ERROR_CHECK(gpio_config(&config));
-    esp_sleep_enable_ext1_wakeup((gpio_num_t)TOUCH_INT, ESP_EXT1_WAKEUP_ALL_LOW);
-
-    printf("Enabling GPIO wakeup on pins GPIO %d\n", TOUCH_INT);
-    delay(5000);
-    printf("start deep_sleep\n");
-    delay(1);
-    esp_deep_sleep(10 * MICROS_TO_SECOND);
 }
