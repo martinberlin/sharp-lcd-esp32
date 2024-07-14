@@ -16,7 +16,8 @@
 
 #include "ds3231.h"
 
-SemaphoreHandle_t TouchSemaphore;
+QueueHandle_t touch_queue = NULL;
+static QueueHandle_t gpio_evt_queue = NULL;
 
 // MXT MaxTouch initialization
 #define MXT144_ADDR 0x4A
@@ -40,7 +41,14 @@ typedef struct mxt_object_tag {
     uint8_t instances_minus_one;
     uint8_t report_ids_per_instance;
 } MXTOBJECT;
+typedef struct _fttouchinfo
+{
+  int count;
+  uint16_t x[5], y[5];
+  uint8_t pressure[5], area[5];
+} TOUCHINFO;
 
+TOUCHINFO pTI;
 MXTDATA _mxtdata;
 
 #define MXT_MESSAGE_SIZE 6
@@ -52,6 +60,7 @@ MXTDATA _mxtdata;
 
 #define TOUCH_INT  6
 
+#define TOUCH_QUEUE_LENGTH 20
 // I2C int the ESP32-S3 board
 #define SDA_GPIO GPIO_NUM_7
 #define SCL_GPIO GPIO_NUM_8
@@ -99,8 +108,6 @@ void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
  */
 int I2CReadRegister16(uint8_t i2c_addr, uint16_t u16Register, uint8_t *pData, int iLen)
 {
-  int i = 0;
-
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
   i2c_master_start(cmd);
@@ -187,24 +194,57 @@ uint16_t u16, u16Offset;
    return ESP_OK;
 }
 
+int touches = 0;
 void IRAM_ATTR isr_touch(void* arg)
 {
-	/* Un-block the interrupt processing task now */
-    xSemaphoreGive(TouchSemaphore);
+   touches++;
+   xQueueSendFromISR(gpio_evt_queue, &touches, NULL);
 }
 
 void process_touch_task(void*arg)
 {
-	/* Task move to Block state to wait for interrupt event */
+  uint8_t ucTemp[8];
+  int touches;
+  /* Task move to Block state to wait for interrupt event */
   while (true) {
-    xSemaphoreTake(TouchSemaphore, portMAX_DELAY);
-    printf("TOUCHED\n");
-  }
-}
+      //if (xQueueReceive(gpio_evt_queue, &touches, portMAX_DELAY)) {
+      if (!_mxtdata.t44_message_count_address) {
+         printf("ERR: No message offset");
+       }
+       I2CReadRegister16(MXT144_ADDR, _mxtdata.t44_message_count_address, ucTemp, 1);
+       int j = ucTemp[0]; // object count
+       // As each message is read from the sensor, the internal count
+       // is decremented. It appears that it can hold 6 messages maximum
+       // before you must read them to receive more.
+       for (int i = 0; i < j; i++) { // read the messages
+          I2CReadRegister16(MXT144_ADDR, _mxtdata.t5_message_processor_address, ucTemp, MXT_MESSAGE_SIZE); // each message is 6 bytes
+          // check report_id
+          if (ucTemp[0] >= _mxtdata.t100_first_report_id + 2 &&
+            ucTemp[0] < _mxtdata.t100_first_report_id + 2 + 5) {
+              uint8_t finger_idx = ucTemp[0] - _mxtdata.t100_first_report_id - 2;
+              uint8_t event = ucTemp[1] & 0xf;
+              if (finger_idx+1 > pTI.count) pTI.count = finger_idx+1;
+              pTI.x[finger_idx] = ucTemp[2] + (ucTemp[3] << 8);
+              pTI.y[finger_idx] = ucTemp[4] + (ucTemp[5] << 8);
 
+              printf("x:%d  y:%d\n", pTI.x[finger_idx], pTI.y[finger_idx]);
+              if (event == 1 || event == 4) { // move/press event
+                  pTI.area[finger_idx] = 50;
+              } else if (event == 5) { // release
+                  pTI.area[finger_idx] = 0;
+              }
+           } // if touch report
+       } // for each report
+       }
+
+  //} // if (xQueueReceive(gpio_evt_queue))
+}
 
 void app_main() {
   printf("Hello LCD, example to test MXT-Touch\n\n");
+  gpio_evt_queue = xQueueCreate(TOUCH_QUEUE_LENGTH, sizeof(uint8_t));
+  touch_queue = xQueueCreate(TOUCH_QUEUE_LENGTH, sizeof(pTI));
+
   gpio_set_direction(LCD_EXTMODE, GPIO_MODE_OUTPUT);
   gpio_set_direction(LCD_DISP, GPIO_MODE_OUTPUT);// Display On(High)/Off(Low) 
   gpio_set_level(LCD_DISP, 1);
@@ -219,7 +259,6 @@ void app_main() {
   // Enable SQW for LCD:
   ds3231_enable_sqw(&dev, DS3231_1HZ);
 
-  TouchSemaphore = xSemaphoreCreateMutex();
   // Begin initializing touch
   initMXT();
   // INT Touch pin 
@@ -236,7 +275,7 @@ void app_main() {
   printf("ISR trigger install response: 0x%x %s\n", isr_service, (isr_service==0)?"ESP_OK":"");
   gpio_isr_handler_add((gpio_num_t)TOUCH_INT, isr_touch, (void*) 1);
 
-  xTaskCreatePinnedToCore(process_touch_task, "process_touch_task", 4096, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(process_touch_task, "process_touch_task", 8000, NULL, 1, NULL, 0);
 
   display.begin();
   display.clearDisplay();
