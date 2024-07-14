@@ -20,7 +20,4 @@ idf_component_register(SRCS
              esp_timer
              fonts
              protocol_examples_common
-             touch
-             #lvgl
-             #lvgl_esp32_drivers
 )

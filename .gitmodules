@@ -13,6 +13,3 @@
 [submodule "components/lvgl_esp32_drivers"]
 	path = components/lvgl_esp32_drivers
 	url = https://github.com/lvgl/lvgl_esp32_drivers.git
-[submodule "components/touch"]
-	path = components/touch
-	url = https://github.com/martinberlin/FT6X36-IDF
