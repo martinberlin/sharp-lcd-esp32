@@ -2,13 +2,13 @@
 #include "driver/gpio.h"
 
 // PCB Pins for LCD SPI
-#define SHARP_SCK  6
-#define SHARP_MOSI 0
-#define SHARP_SS   7
+#define SHARP_SCK  1
+#define SHARP_MOSI 2
+#define SHARP_SS   3
 
 // External COM Inversion Signal
-#define LCD_EXTMODE GPIO_NUM_3
-#define LCD_DISP    GPIO_NUM_2
+#define LCD_EXTMODE GPIO_NUM_14
+#define LCD_DISP    GPIO_NUM_4
 
 // Buttons
 #define PCB_BUTTON_1 GPIO_NUM_8

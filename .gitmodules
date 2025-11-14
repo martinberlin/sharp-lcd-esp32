@@ -13,3 +13,9 @@
 [submodule "components/lvgl_esp32_drivers"]
 	path = components/lvgl_esp32_drivers
 	url = https://github.com/lvgl/lvgl_esp32_drivers.git
+[submodule "components/bb_rtc"]
+	path = components/bb_rtc
+	url = https://github.com/bitbank2/bb_rtc.git
+[submodule "components/esp-idf-scd4x"]
+	path = components/esp-idf-scd4x
+	url = https://github.com/timbuntu/esp-idf-scd4x.git

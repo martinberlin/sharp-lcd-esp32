@@ -2,19 +2,20 @@ idf_component_register(SRCS
 #"lvgl-demo/ux.cpp"
 #"tests/lcd-touch.cpp"
     #"tests/lcd-only.cpp"
-    "tests/mxt-touch-lcd.cpp"
+    #"tests/mxt-touch-lcd.cpp"
     #"tests/hello-lcd.cpp"
     #"tests/i2c-scan.cpp"
     #"tests/pm-cpu-speed.c"
     #"clock/3231-clock.cpp"
-    #"games/life.cpp"
+    "games/life.cpp"
 
     INCLUDE_DIRS translations
                  settings
 
     REQUIRES sharp-lcd
              nvs_flash
-             rtc
+             bb_rtc
+             esp-idf-scd4x  # Optional to add a SCD40
              esp_event
              esp_wifi
              esp_timer
