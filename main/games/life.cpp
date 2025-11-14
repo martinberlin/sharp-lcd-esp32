@@ -30,6 +30,9 @@ Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 400, height);
 
 #define USE_SCD40
 
+
+void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
+
 #ifdef USE_SCD40
   // SCD4x
   #include "scd4x_i2c.h"
@@ -115,24 +118,36 @@ Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 400, height);
         ESP_LOGI("SCD40", "Humi: %d mRH %.1f %%\n", (int)humidity, hum);
 
         int cursor_x = 210;
-        int cursor_y = 55;
+        int cursor_y = 75;
         
         char textbuffer[12];
-        snprintf(textbuffer, sizeof(textbuffer), "%d", co2);
+        snprintf(textbuffer, sizeof(textbuffer), "%d CO2", co2);
         display.setCursor(cursor_x, cursor_y);
         display.print(textbuffer); //CO2
         
         char tempbuffer[12];
-        cursor_y += 20;
-        snprintf(tempbuffer, sizeof(tempbuffer), "%.1f °C", tem);
+        cursor_x = 210;
+        cursor_y += 40;
+        snprintf(tempbuffer, sizeof(tempbuffer), "%.1f C", tem);
+        display.setCursor(cursor_x, cursor_y);
         display.print(tempbuffer);
 
         char humbuffer[12];
-        cursor_y += 20;
+        cursor_x = 210;
+        cursor_y += 40;
         snprintf(humbuffer, sizeof(humbuffer), "%.1f %% hum", hum);
+        display.setCursor(cursor_x, cursor_y);
         display.print(humbuffer);
+        cursor_y += 50;
+        display.setCursor(cursor_x, cursor_y);
+        display.print("FASANI");
+        cursor_y += 30;
+        display.setCursor(cursor_x, cursor_y);
+        display.print("CORP.");
     }
     ESP_LOGI("SCD40", "power_down()");
+    display.refresh();
+    delay(1000);
     scd4x_power_down();
     sensirion_i2c_hal_free();
   }
@@ -145,9 +160,6 @@ extern "C"
 {
     void app_main();
 }
-
-void delay(uint32_t millis) { vTaskDelay(pdMS_TO_TICKS(millis)); }
-
 
 uint16_t generateRandom(uint16_t max) {
     if (max>0) {
@@ -235,13 +247,19 @@ void loop() {
   display.clearDisplay();
   display.setTextSize(2);
   display.setCursor(20,25);
-  display.print("Tu padre te quiere!");
+  display.print("Tu padre");
   display.setCursor(20,55);
-  display.print("Game of Life");
-  display.refresh();
-  delay(2500);
+  display.print("te quiere!");
 
-  display.clearDisplay();
+  display.setCursor(20,95);
+  display.print("Buen dia");
+  display.setCursor(20,120);
+  display.print("NEL");
+  display.refresh();
+  delay(1500);
+  scd_read();
+
+  //display.clearDisplay();
     initGrid();
   for (uint16_t gen = 0; gen < maxGenerations; gen++) {
      computeNewGeneration();
@@ -262,7 +280,7 @@ void app_main()   {
   gpio_set_level(LCD_DISP, 1);
   gpio_set_level(LCD_EXTMODE, 1); // Using Ext com in HIGH mode-> Signal sent by RTC at 1 Hz
   delay(20);
-  scd_read();
+  
 // Initialize RTC
   int rc = rtc.init(SDA_PIN, SCL_PIN);
     if (rc != RTC_SUCCESS) {
@@ -274,8 +292,7 @@ void app_main()   {
   printf("RTC detected and starting SQW\n");
   rtc.setFreq(1000); // Squarewave |_|‾| for display DS3231_1HZ
   //ds3231_enable_sqw(&dev, DS3231_4096HZ); 
-
-  display.begin();
+    display.begin();
   display.setRotation(0);
   display.clearDisplayBuffer();
 
